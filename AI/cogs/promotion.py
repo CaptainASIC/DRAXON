@@ -122,7 +122,7 @@ class PromotionCog(commands.Cog):
         return "Unranked"
 
     @app_commands.command(name="promote", description="Promote a member to the next rank")
-    @app_commands.checks.has_any_role("Chairmen", "Directors")
+    @app_commands.checks.has_any_role("Chairman", "Director")
     async def promote(self, interaction: discord.Interaction, member: discord.Member):
         """Promote a member to the next rank"""
         try:
@@ -188,7 +188,7 @@ class PromotionCog(commands.Cog):
             )
 
     @app_commands.command(name="demote", description="Demote a member to the previous rank")
-    @app_commands.checks.has_any_role("Chairmen", "Directors")
+    @app_commands.checks.has_any_role("Chairman", "Director")
     async def demote(self, interaction: discord.Interaction, member: discord.Member):
         """Demote a member to the previous rank"""
         try:

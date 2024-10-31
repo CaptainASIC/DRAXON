@@ -6,46 +6,146 @@ from lib.constants import DraXon_ROLES, STATUS_EMOJIS, APP_VERSION
 
 logger = logging.getLogger('DraXon_AI')
 
+class SetupModal(discord.ui.Modal, title='DraXon AI Channel Setup'):
+    def __init__(self):
+        super().__init__()
+        
+        self.incidents_channel = discord.ui.TextInput(
+            label='Incidents Channel',
+            placeholder='Enter the channel name for incident notifications...',
+            required=True,
+            min_length=1,
+            max_length=100
+        )
+        
+        self.promotion_channel = discord.ui.TextInput(
+            label='Promotion Channel',
+            placeholder='Enter the channel name for promotion announcements...',
+            required=True,
+            min_length=1,
+            max_length=100
+        )
+        
+        self.demotion_channel = discord.ui.TextInput(
+            label='Demotion Channel',
+            placeholder='Enter the channel name for demotion notifications...',
+            required=True,
+            min_length=1,
+            max_length=100
+        )
+        
+        self.reminder_channel = discord.ui.TextInput(
+            label='Reminder Channel',
+            placeholder='Enter the channel name for unlinked member reports...',
+            required=True,
+            min_length=1,
+            max_length=100
+        )
+
+        self.add_item(self.incidents_channel)
+        self.add_item(self.promotion_channel)
+        self.add_item(self.demotion_channel)
+        self.add_item(self.reminder_channel)
+        
+        self.bot = None
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=True)
+        
+        try:
+            # Validate and get channel IDs
+            incidents_channel = discord.utils.get(interaction.guild.channels, name=self.incidents_channel.value)
+            promotion_channel = discord.utils.get(interaction.guild.channels, name=self.promotion_channel.value)
+            demotion_channel = discord.utils.get(interaction.guild.channels, name=self.demotion_channel.value)
+            reminder_channel = discord.utils.get(interaction.guild.channels, name=self.reminder_channel.value)
+
+            if not all([incidents_channel, promotion_channel, demotion_channel, reminder_channel]):
+                missing_channels = []
+                if not incidents_channel:
+                    missing_channels.append("Incidents")
+                if not promotion_channel:
+                    missing_channels.append("Promotion")
+                if not demotion_channel:
+                    missing_channels.append("Demotion")
+                if not reminder_channel:
+                    missing_channels.append("Reminder")
+                    
+                await interaction.followup.send(
+                    f"❌ Could not find the following channels: {', '.join(missing_channels)}",
+                    ephemeral=True
+                )
+                return
+
+            # Store channel IDs in bot
+            self.bot.incidents_channel_id = incidents_channel.id
+            self.bot.promotion_channel_id = promotion_channel.id
+            self.bot.demotion_channel_id = demotion_channel.id
+            self.bot.reminder_channel_id = reminder_channel.id
+
+            # Send confirmation
+            embed = discord.Embed(
+                title="✅ Setup Complete",
+                description="Channel configuration has been updated:",
+                color=discord.Color.green()
+            )
+            
+            embed.add_field(
+                name="Channel Assignments",
+                value=f"📢 Incidents: {incidents_channel.mention}\n"
+                      f"🎉 Promotions: {promotion_channel.mention}\n"
+                      f"🔄 Demotions: {demotion_channel.mention}\n"
+                      f"📋 Reminders: {reminder_channel.mention}",
+                inline=False
+            )
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        except Exception as e:
+            logger.error(f"Error in setup modal: {e}")
+            await interaction.followup.send(
+                "❌ An error occurred during setup. Please try again.",
+                ephemeral=True
+            )
+
 class CommandsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
     @app_commands.command(name="draxon-stats", description="Display DraXon member statistics")
+    @app_commands.checks.has_any_role("Chairman", "Director")
     async def draxon_stats(self, interaction: discord.Interaction):
         """Command to display member statistics"""
-        user_roles = [role.name for role in interaction.user.roles]
-        
-        if not any(role in DraXon_ROLES['leadership'] for role in user_roles):
+        try:
+            total_members = 0
+            role_counts = {}
+            
+            for category, roles in DraXon_ROLES.items():
+                for role_name in roles:
+                    role = discord.utils.get(interaction.guild.roles, name=role_name)
+                    if role:
+                        members = len([m for m in role.members if not m.bot])
+                        role_counts[role_name] = members
+                        total_members += members
+
+            bot_role = discord.utils.get(interaction.guild.roles, name="Bots")
+            bot_count = len(bot_role.members) if bot_role else 0
+
+            role_breakdown = "\n".join(f"└ {role}: {count}" 
+                                     for role, count in role_counts.items())
+
             await interaction.response.send_message(
-                "⚠️ You do not have permission to view member statistics.", 
+                f"📊 **DraXon Member Statistics**\n\n"
+                f"👥 **Member Breakdown:**\n{role_breakdown}\n\n"
+                f"Total Human Members: {total_members}\n"
+                f"Total Automated Systems: {bot_count}",
                 ephemeral=True
             )
-            return
-
-        total_members = 0
-        role_counts = {}
-        
-        for category, roles in DraXon_ROLES.items():
-            for role_name in roles:
-                role = discord.utils.get(interaction.guild.roles, name=role_name)
-                if role:
-                    members = len([m for m in role.members if not m.bot])
-                    role_counts[role_name] = members
-                    total_members += members
-
-        bot_role = discord.utils.get(interaction.guild.roles, name="Bots")
-        bot_count = len(bot_role.members) if bot_role else 0
-
-        role_breakdown = "\n".join(f"└ {role}: {count}" 
-                                 for role, count in role_counts.items())
-
-        await interaction.response.send_message(
-            f"📊 **DraXon Member Statistics**\n\n"
-            f"👥 **Member Breakdown:**\n{role_breakdown}\n\n"
-            f"Total Human Members: {total_members}\n"
-            f"Total Automated Systems: {bot_count}",
-            ephemeral=True
-        )
+        except Exception as e:
+            logger.error(f"Error in stats command: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred while fetching statistics.",
+                ephemeral=True
+            )
 
     @app_commands.command(name="refresh-channels", description="Manually refresh DraXon AI channels")
     @app_commands.checks.has_role("Chairman")
@@ -99,22 +199,11 @@ class CommandsCog(commands.Cog):
 
     @app_commands.command(name="setup", description="Configure bot channels")
     @app_commands.checks.has_role("Chairman")
-    async def setup(
-        self, 
-        interaction: discord.Interaction, 
-        incidents_channel: discord.TextChannel,
-        promotion_channel: discord.TextChannel
-    ):
-        """Setup command to configure the channels"""
-        self.bot.incidents_channel_id = incidents_channel.id
-        self.bot.promotion_channel_id = promotion_channel.id
-        
-        await interaction.response.send_message(
-            f"✅ Configuration updated:\n"
-            f"• Incidents will be posted to {incidents_channel.mention}\n"
-            f"• Promotions will be announced in {promotion_channel.mention}",
-            ephemeral=True
-        )
+    async def setup(self, interaction: discord.Interaction):
+        """Setup command to configure the channels using a modal"""
+        modal = SetupModal()
+        modal.bot = self.bot
+        await interaction.response.send_modal(modal)
 
     @app_commands.command(name="force-check", description="Force check for new incidents and status")
     @app_commands.checks.has_role("Chairman")
@@ -151,54 +240,68 @@ class CommandsCog(commands.Cog):
         is_leadership = any(role in DraXon_ROLES['leadership'] for role in user_roles)
 
         embed = discord.Embed(
-            title="DraXon AI Commands",
+            title=f"DraXon AI Commands v{APP_VERSION}",
             description="Available commands and their descriptions:",
             color=discord.Color.blue()
         )
 
-        # Basic commands
+        # Basic commands section
         basic_commands = [
             ("/system-status", "Display current status of RSI systems"),
             ("/draxon-link", "Link your RSI account with Discord"),
-            ("/draxon-org", "Display organization member list with roles"),
-            ("/draxon-compare", "Compare Discord members with RSI org members")
+            ("/help", "Display this help message")
         ]
         
-        for cmd_name, cmd_desc in basic_commands:
-            embed.add_field(
-                name=cmd_name,
-                value=cmd_desc,
-                inline=False
-            )
+        embed.add_field(
+            name="📌 Basic Commands",
+            value="\n".join(f"`{cmd}`: {desc}" for cmd, desc in basic_commands),
+            inline=False
+        )
         
         if is_leadership:
-            # Leadership commands
+            # Leadership commands section
+            leadership_commands = [
+                ("/draxon-stats", "Display detailed member statistics"),
+                ("/promote", "Promote a member"),
+                ("/demote", "Demote a member")
+            ]
+
             embed.add_field(
-                name="/draxon-stats",
-                value="Display detailed member statistics",
+                name="👥 Leadership Commands",
+                value="\n".join(f"`{cmd}`: {desc}" for cmd, desc in leadership_commands),
                 inline=False
             )
 
             if "Chairman" in user_roles:
-                # Chairman-only commands
+                # Chairman-only commands section
                 chairman_commands = [
-                    ("/refresh-channels", "Manually refresh all DraXon AI channels"),
-                    ("/setup", "Configure bot channels for incidents and promotions"),
-                    ("/force-check", "Force check for new incidents and status updates"),
-                    ("/promote", "Promote a member to the next rank"),
-                    ("/demote", "Demote a member to the previous rank"),
-                    ("/draxon-backup", "Create a backup of the server configuration"),
-                    ("/draxon-restore", "Restore server configuration from a backup file")
+                    ("/draxon-org", "View organization member list"),
+                    ("/draxon-compare", "Compare Discord and RSI members"),
+                    ("/refresh-channels", "Manually refresh channels"),
+                    ("/setup", "Configure bot channels and notifications"),
+                    ("/force-check", "Force status checks"),
+                    ("/draxon-backup", "Create server backup"),
+                    ("/draxon-restore", "Restore from backup")
                 ]
                 
-                for cmd_name, cmd_desc in chairman_commands:
-                    embed.add_field(
-                        name=cmd_name,
-                        value=cmd_desc,
-                        inline=False
-                    )
+                embed.add_field(
+                    name="⚡ Chairman Commands",
+                    value="\n".join(f"`{cmd}`: {desc}" for cmd, desc in chairman_commands),
+                    inline=False
+                )
 
-        embed.set_footer(text=f"DraXon AI v{APP_VERSION}")
+        # New features section
+        embed.add_field(
+            name="🆕 New Features v1.6.0",
+            value="• Daily role verification system\n"
+                  "• Automated affiliate role management\n"
+                  "• Account linking reminders\n"
+                  "• Enhanced notification system\n"
+                  "• Modal-based setup configuration",
+            inline=False
+        )
+
+        embed.set_footer(text=f"DraXon AI v{APP_VERSION} - Use commands in appropriate channels")
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
 

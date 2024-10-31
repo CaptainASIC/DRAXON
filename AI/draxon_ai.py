@@ -15,7 +15,7 @@ from lib.constants import *
 # Configure logging
 LOG_DIR.mkdir(exist_ok=True)
 ENV_DIR.mkdir(exist_ok=True)
-DB_DIR.mkdir(exist_ok=True)  # Add this line
+DB_DIR.mkdir(exist_ok=True)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,6 +49,8 @@ class DraXonAIBot(commands.Bot):
         # Store for channel IDs
         self.incidents_channel_id = None
         self.promotion_channel_id = None
+        self.demotion_channel_id = None
+        self.reminder_channel_id = None
         self._ready = False
         
         logger.info("Bot initialized")
@@ -67,7 +69,8 @@ class DraXonAIBot(commands.Bot):
                 'cogs.rsi_status_monitor',
                 'cogs.rsi_incidents_monitor',
                 'cogs.backup',
-                'cogs.rsi_integration'  # Added new RSI integration cog
+                'cogs.rsi_integration',
+                'cogs.membership_monitor'
             ]
             
             # Load each cog only once
@@ -126,6 +129,22 @@ async def on_command_error(ctx, error):
     else:
         logger.error(f"Command error: {error}")
         await ctx.send("❌ An error occurred while processing the command.")
+
+@bot.tree.error
+async def on_app_command_error(interaction: discord.Interaction, error: app_commands.AppCommandError):
+    """Global error handler for application commands"""
+    if isinstance(error, app_commands.errors.MissingRole):
+        await interaction.response.send_message(
+            "❌ You don't have permission to use this command.",
+            ephemeral=True
+        )
+    else:
+        logger.error(f"Application command error: {error}")
+        if not interaction.response.is_done():
+            await interaction.response.send_message(
+                "❌ An error occurred while processing the command.",
+                ephemeral=True
+            )
 
 if __name__ == "__main__":
     try:

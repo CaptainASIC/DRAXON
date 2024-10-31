@@ -16,7 +16,9 @@ from lib.constants import (
     COMPARE_STATUS,
     RSI_MEMBERS_PER_PAGE,
     DB_DIR,
-    RSI_DB_PATH
+    RSI_DB_PATH,
+    API_MAINTENANCE_START,
+    API_MAINTENANCE_DURATION
 )
 from lib.rsi_db import RSIDatabase
 
@@ -55,16 +57,20 @@ class RSIIntegrationCog(commands.Cog):
         """Fetch all organization members from RSI API"""
         members = []
         page = 1
-        while True:
-            data = await self.fetch_api_data(f"organization_members/{RSI_ORGANIZATION_SID}", 
-                                           params={"page": page})
-            if not data or not data.get('data'):
-                break
-            members.extend(data['data'])
-            if len(data['data']) < RSI_MEMBERS_PER_PAGE:
-                break
-            page += 1
-        return members
+        try:
+            while True:
+                data = await self.fetch_api_data(f"organization_members/{RSI_ORGANIZATION_SID}", 
+                                               params={"page": page})
+                if not data or not data.get('data'):
+                    break
+                members.extend(data['data'])
+                if len(data['data']) < RSI_MEMBERS_PER_PAGE:
+                    break
+                page += 1
+            return members
+        except Exception as e:
+            logger.error(f"Error fetching org members: {e}")
+            return []
 
     async def create_member_table(self, members: List[Dict], include_roles: bool = True) -> str:
         """Create a formatted table of members"""
@@ -148,6 +154,7 @@ class RSIIntegrationCog(commands.Cog):
         await interaction.response.send_modal(modal)
 
     @app_commands.command(name="draxon-org", description="Display organization member list")
+    @app_commands.checks.has_role("Chairman")
     async def org_members(self, interaction: discord.Interaction):
         """Command to display organization members"""
         await interaction.response.defer()
@@ -160,7 +167,6 @@ class RSIIntegrationCog(commands.Cog):
 
             table = await self.create_member_table(members)
             
-            # Create file for download
             file = discord.File(
                 io.StringIO(table),
                 filename=f'draxon_members_{datetime.datetime.now().strftime("%Y%m%d_%H%M%S")}.txt'
@@ -176,13 +182,14 @@ class RSIIntegrationCog(commands.Cog):
             await interaction.followup.send("❌ An error occurred while fetching member data.")
 
     @app_commands.command(name="draxon-compare", description="Compare Discord and Org members")
+    @app_commands.checks.has_role("Chairman")
     async def compare_members(self, interaction: discord.Interaction):
         """Command to compare Discord and Org members"""
         await interaction.response.defer()
 
         try:
             org_members = await self.get_org_members()
-            if not org_members:
+            if not members:
                 await interaction.followup.send("❌ Failed to fetch organization members.")
                 return
 
@@ -216,7 +223,6 @@ class LinkAccountModal(discord.ui.Modal, title='Link RSI Account'):
         self.cog = None
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Acknowledge the interaction immediately
         await interaction.response.defer(ephemeral=True)
         
         try:
@@ -224,6 +230,17 @@ class LinkAccountModal(discord.ui.Modal, title='Link RSI Account'):
             
             response = await self.cog.get_user_info(self.handle.value)
             logger.info(f"Full API Response: {json.dumps(response, indent=2)}")
+
+            # Check for API unavailability response
+            if response and not response.get('success') and response.get('message') == "Can't process the request." and response.get('data') is None:
+                await interaction.followup.send(
+                    "⚠️ **RSI API is Currently Unavailable**\n\n"
+                    "The RSI API is experiencing downtime. This is a known issue that occurs daily "
+                    f"from {API_MAINTENANCE_START} UTC for approximately {API_MAINTENANCE_DURATION} hours.\n\n"
+                    "Please try again later when the API service has been restored.",
+                    ephemeral=True
+                )
+                return
 
             if not response or not response.get('success'):
                 await interaction.followup.send(
