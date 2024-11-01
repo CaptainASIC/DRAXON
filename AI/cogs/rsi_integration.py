@@ -189,7 +189,7 @@ class RSIIntegrationCog(commands.Cog):
 
         try:
             org_members = await self.get_org_members()
-            if not members:
+            if not org_members:
                 await interaction.followup.send("❌ Failed to fetch organization members.")
                 return
 

@@ -6,83 +6,93 @@ from lib.constants import DraXon_ROLES, STATUS_EMOJIS, APP_VERSION
 
 logger = logging.getLogger('DraXon_AI')
 
-class SetupModal(discord.ui.Modal, title='DraXon AI Channel Setup'):
-    def __init__(self):
-        super().__init__()
-        
-        self.incidents_channel = discord.ui.TextInput(
-            label='Incidents Channel',
-            placeholder='Enter the channel name for incident notifications...',
-            required=True,
-            min_length=1,
-            max_length=100
-        )
-        
-        self.promotion_channel = discord.ui.TextInput(
-            label='Promotion Channel',
-            placeholder='Enter the channel name for promotion announcements...',
-            required=True,
-            min_length=1,
-            max_length=100
-        )
-        
-        self.demotion_channel = discord.ui.TextInput(
-            label='Demotion Channel',
-            placeholder='Enter the channel name for demotion notifications...',
-            required=True,
-            min_length=1,
-            max_length=100
-        )
-        
-        self.reminder_channel = discord.ui.TextInput(
-            label='Reminder Channel',
-            placeholder='Enter the channel name for unlinked member reports...',
-            required=True,
-            min_length=1,
-            max_length=100
-        )
+class ChannelSelectView(discord.ui.View):
+    def __init__(self, bot, timeout=180):
+        super().__init__(timeout=timeout)
+        self.bot = bot
+        self.incidents_channel = None
+        self.promotion_channel = None
+        self.demotion_channel = None
+        self.reminder_channel = None
 
-        self.add_item(self.incidents_channel)
-        self.add_item(self.promotion_channel)
-        self.add_item(self.demotion_channel)
-        self.add_item(self.reminder_channel)
-        
-        self.bot = None
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Incidents Channel",
+        min_values=1,
+        max_values=1
+    )
+    async def incidents_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.incidents_channel = select.values[0]
+        select.disabled = True
+        select.placeholder = f"Incidents Channel: {self.incidents_channel.name}"
+        await self.check_completion(interaction)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        await interaction.response.defer(ephemeral=True)
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Promotion Channel",
+        min_values=1,
+        max_values=1
+    )
+    async def promotion_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.promotion_channel = select.values[0]
+        select.disabled = True
+        select.placeholder = f"Promotion Channel: {self.promotion_channel.name}"
+        await self.check_completion(interaction)
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Demotion Channel",
+        min_values=1,
+        max_values=1
+    )
+    async def demotion_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.demotion_channel = select.values[0]
+        select.disabled = True
+        select.placeholder = f"Demotion Channel: {self.demotion_channel.name}"
+        await self.check_completion(interaction)
+
+    @discord.ui.select(
+        cls=discord.ui.ChannelSelect,
+        channel_types=[discord.ChannelType.text],
+        placeholder="Select Reminder Channel",
+        min_values=1,
+        max_values=1
+    )
+    async def reminder_select(self, interaction: discord.Interaction, select: discord.ui.Select):
+        self.reminder_channel = select.values[0]
+        select.disabled = True
+        select.placeholder = f"Reminder Channel: {self.reminder_channel.name}"
+        await self.check_completion(interaction)
+
+    @discord.ui.button(label="Reset Selections", style=discord.ButtonStyle.secondary)
+    async def reset_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Reset all selections"""
+        for child in self.children:
+            if isinstance(child, discord.ui.ChannelSelect):
+                child.disabled = False
+                child.placeholder = child.placeholder.split(":")[0]
         
+        self.incidents_channel = None
+        self.promotion_channel = None
+        self.demotion_channel = None
+        self.reminder_channel = None
+        
+        await interaction.response.edit_message(view=self)
+
+    @discord.ui.button(label="Confirm Setup", style=discord.ButtonStyle.green, disabled=True)
+    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Process the final setup"""
         try:
-            # Validate and get channel IDs
-            incidents_channel = discord.utils.get(interaction.guild.channels, name=self.incidents_channel.value)
-            promotion_channel = discord.utils.get(interaction.guild.channels, name=self.promotion_channel.value)
-            demotion_channel = discord.utils.get(interaction.guild.channels, name=self.demotion_channel.value)
-            reminder_channel = discord.utils.get(interaction.guild.channels, name=self.reminder_channel.value)
-
-            if not all([incidents_channel, promotion_channel, demotion_channel, reminder_channel]):
-                missing_channels = []
-                if not incidents_channel:
-                    missing_channels.append("Incidents")
-                if not promotion_channel:
-                    missing_channels.append("Promotion")
-                if not demotion_channel:
-                    missing_channels.append("Demotion")
-                if not reminder_channel:
-                    missing_channels.append("Reminder")
-                    
-                await interaction.followup.send(
-                    f"❌ Could not find the following channels: {', '.join(missing_channels)}",
-                    ephemeral=True
-                )
-                return
-
             # Store channel IDs in bot
-            self.bot.incidents_channel_id = incidents_channel.id
-            self.bot.promotion_channel_id = promotion_channel.id
-            self.bot.demotion_channel_id = demotion_channel.id
-            self.bot.reminder_channel_id = reminder_channel.id
+            self.bot.incidents_channel_id = self.incidents_channel.id
+            self.bot.promotion_channel_id = self.promotion_channel.id
+            self.bot.demotion_channel_id = self.demotion_channel.id
+            self.bot.reminder_channel_id = self.reminder_channel.id
 
-            # Send confirmation
+            # Create confirmation embed
             embed = discord.Embed(
                 title="✅ Setup Complete",
                 description="Channel configuration has been updated:",
@@ -91,21 +101,46 @@ class SetupModal(discord.ui.Modal, title='DraXon AI Channel Setup'):
             
             embed.add_field(
                 name="Channel Assignments",
-                value=f"📢 Incidents: {incidents_channel.mention}\n"
-                      f"🎉 Promotions: {promotion_channel.mention}\n"
-                      f"🔄 Demotions: {demotion_channel.mention}\n"
-                      f"📋 Reminders: {reminder_channel.mention}",
+                value=f"📢 Incidents: {self.incidents_channel.mention}\n"
+                      f"🎉 Promotions: {self.promotion_channel.mention}\n"
+                      f"🔄 Demotions: {self.demotion_channel.mention}\n"
+                      f"📋 Reminders: {self.reminder_channel.mention}",
                 inline=False
             )
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            # Disable all components
+            for child in self.children:
+                child.disabled = True
+
+            await interaction.response.edit_message(embed=embed, view=self)
 
         except Exception as e:
-            logger.error(f"Error in setup modal: {e}")
-            await interaction.followup.send(
+            logger.error(f"Error in setup confirmation: {e}")
+            await interaction.response.send_message(
                 "❌ An error occurred during setup. Please try again.",
                 ephemeral=True
             )
+
+    async def check_completion(self, interaction: discord.Interaction):
+        """Check if all channels have been selected"""
+        all_selected = all([
+            self.incidents_channel,
+            self.promotion_channel,
+            self.demotion_channel,
+            self.reminder_channel
+        ])
+        
+        # Enable/disable confirm button based on completion
+        for child in self.children:
+            if isinstance(child, discord.ui.Button) and child.label == "Confirm Setup":
+                child.disabled = not all_selected
+        
+        await interaction.response.edit_message(view=self)
+
+    async def on_timeout(self):
+        """Handle timeout by disabling all components"""
+        for child in self.children:
+            child.disabled = True
 
 class CommandsCog(commands.Cog):
     def __init__(self, bot):
@@ -200,10 +235,28 @@ class CommandsCog(commands.Cog):
     @app_commands.command(name="setup", description="Configure bot channels")
     @app_commands.checks.has_role("Chairman")
     async def setup(self, interaction: discord.Interaction):
-        """Setup command to configure the channels using a modal"""
-        modal = SetupModal()
-        modal.bot = self.bot
-        await interaction.response.send_modal(modal)
+        """Setup command using channel selection view"""
+        try:
+            embed = discord.Embed(
+                title="DraXon AI Channel Setup",
+                description="Please select the channels for each notification type below.\n"
+                           "All channels must be selected before confirming the setup.",
+                color=discord.Color.blue()
+            )
+            
+            view = ChannelSelectView(self.bot)
+            await interaction.response.send_message(
+                embed=embed,
+                view=view,
+                ephemeral=True
+            )
+
+        except Exception as e:
+            logger.error(f"Error in setup command: {e}")
+            await interaction.response.send_message(
+                "❌ An error occurred while initializing setup.",
+                ephemeral=True
+            )
 
     @app_commands.command(name="force-check", description="Force check for new incidents and status")
     @app_commands.checks.has_role("Chairman")
@@ -262,8 +315,8 @@ class CommandsCog(commands.Cog):
             # Leadership commands section
             leadership_commands = [
                 ("/draxon-stats", "Display detailed member statistics"),
-                ("/promote", "Promote a member"),
-                ("/demote", "Demote a member")
+                ("/promote", "Promote a member with role selection"),
+                ("/demote", "Demote a member with role selection")
             ]
 
             embed.add_field(
@@ -292,12 +345,12 @@ class CommandsCog(commands.Cog):
 
         # New features section
         embed.add_field(
-            name="🆕 New Features v1.6.0",
-            value="• Daily role verification system\n"
-                  "• Automated affiliate role management\n"
-                  "• Account linking reminders\n"
-                  "• Enhanced notification system\n"
-                  "• Modal-based setup configuration",
+            name="🆕 New Features v1.6.1",
+            value="• Enhanced promotion and demotion system with role selection\n"
+                  "• Improved setup process with channel selection\n"
+                  "• Better error prevention in configuration\n"
+                  "• Streamlined notification management\n"
+                  "• Added reason tracking for rank changes",
             inline=False
         )
 
